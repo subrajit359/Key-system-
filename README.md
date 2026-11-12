@@ -1,72 +1,89 @@
-# Keysystem
+# GUDU X BYPASS Keysystem
 
-A flat-file Python license server and Telegram admin bot backed by PostgreSQL.
-All project files live directly inside `Keysystem/`; no subfolders are needed.
+Railway-ready Python + PostgreSQL license server with Telegram admin management.
 
-## Features
+## Files
 
-- Generate one or many time-limited licence keys from Telegram.
-- First successful activation binds a key to one device ID.
-- The same device can verify again; another device is rejected.
-- Reset binding, ban/unban, change expiry, delete keys.
-- List recent keys and view statistics.
-- Store only SHA-256 hashes of licence keys in PostgreSQL.
+Everything is in this one folder. There are no subfolders.
 
-## Important device-binding limitation
+- `app.py` — FastAPI server + Telegram admin bot + PostgreSQL logic
+- `requirements.txt` — Python dependencies
+- `railway.json` — Railway build/start configuration
+- `.env.example` — environment variable template
+- `.gitignore` — ignores secrets/cache
 
-The API enforces one `device_id` per key, but a plain Lua-generated device ID can be copied or spoofed. This is practical one-device licensing, not strong hardware-backed protection. For stronger protection, add an Android helper that creates a private key in Android Keystore and signs server challenges. Never put database credentials, bot tokens, or admin secrets in Lua.
+## Railway setup
 
-## Setup
+1. Create a Railway project.
+2. Add a PostgreSQL service.
+3. Add this project as the application service.
+4. Set these variables in the application service:
 
-1. Create a PostgreSQL database with your provider.
-2. Copy `.env.example` to `.env` and fill in `DATABASE_URL`, `BOT_TOKEN`, and your numeric Telegram ID in `ADMIN_IDS`.
-3. Install Python 3.11+ and dependencies:
+```text
+BOT_TOKEN=your Telegram bot token
+ADMIN_IDS=your Telegram numeric user ID
+API_SECRET=a long random secret
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+```
 
-   `python -m pip install -r requirements.txt`
+If Railway exposes the Postgres variable under another reference name, select the PostgreSQL service's `DATABASE_URL` variable from Railway's variable/reference UI.
 
-4. Start the API in one terminal:
+5. Deploy.
+6. Open `/health` on the generated Railway domain. It should return:
 
-   `python -m uvicorn app:app --host 0.0.0.0 --port 8000`
-
-5. Start the Telegram bot in another terminal:
-
-   `python bot.py`
-
-6. Put the API behind HTTPS before connecting your Lua client. Do not expose port 8000 directly to the public internet without a reverse proxy and HTTPS.
+```json
+{"ok":true,"database":"ok"}
+```
 
 ## Telegram commands
 
-- `/gen` — one key, 30 days
-- `/gen 90 5` — five keys, 90 days
-- `/reset GUDU-...` — unbind the current device
-- `/ban GUDU-...`
-- `/unban GUDU-...`
-- `/expire GUDU-... 30` — set expiry to 30 days from now
-- `/delete GUDU-...` — permanently delete
-- `/list`
-- `/stats`
+```text
+/gen 30
+/gen 30 5
 
-Only Telegram IDs listed in `ADMIN_IDS` can run commands. Keep `.env` private and do not upload it to a public repository.
+/reset GUDU-XXXXX-XXXXX-XXXXX-XXXXX
+/ban GUDU-XXXXX-XXXXX-XXXXX-XXXXX
+/ban GUDU-XXXXX-XXXXX-XXXXX-XXXXX stolen
+/unban GUDU-XXXXX-XXXXX-XXXXX-XXXXX
 
-## API
+/extend GUDU-XXXXX-XXXXX-XXXXX-XXXXX 30
+/delete GUDU-XXXXX-XXXXX-XXXXX-XXXXX
+/info GUDU-XXXXX-XXXXX-XXXXX-XXXXX
+/list
+/stats
+```
 
-`POST /v1/license/activate` and `POST /v1/license/verify`
+Only IDs in `ADMIN_IDS` can use these commands.
 
-JSON body:
+## License verification API
+
+Endpoint:
+
+```text
+POST /api/verify
+```
+
+Header:
+
+```text
+X-API-Secret: YOUR_API_SECRET
+```
+
+JSON:
 
 ```json
 {
-  "key": "GUDU-YOUR-LICENSE-KEY",
-  "device_id": "stable-device-identifier"
+  "key": "GUDU-XXXXX-XXXXX-XXXXX-XXXXX",
+  "device_id": "YOUR_DEVICE_FINGERPRINT"
 }
 ```
 
-Example response:
+First successful verification binds the key to that device. Later requests must use the same device ID.
 
-```json
-{"valid": true, "status": "activated"}
-```
+The server also rejects banned and expired keys.
 
-Possible failure statuses: `invalid_key`, `banned`, `expired`, `device_mismatch`.
+## Important
 
-The client must send the same stable device ID for subsequent checks. Use HTTPS. A production deployment should also add request rate limiting, monitoring, backups, and cryptographic device proof if stronger binding is required.
+Do not put the bot token, database password, or API secret into a public GitHub repository.
+
+A Lua-only device ID can be spoofed. For stronger anti-sharing protection, the client should eventually use an Android Keystore-backed proof instead of relying only on a Lua-generated fingerprint.
